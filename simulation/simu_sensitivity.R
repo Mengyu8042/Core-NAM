@@ -28,7 +28,7 @@ library(gridExtra)
 
 ## Import the source file and utility file ##
 setwd(getwd())
-sourceCpp("source/funcs.cpp")
+sourceCpp("../source/funcs.cpp")
 source("utility.R")
 
 ## Beginning ##
@@ -39,14 +39,14 @@ plot_num <- 0
 
 for (k in c(30, 40, 50)) {
   for (SNR in c(2, 5, 10)) {
+    print(paste0("Basis dimension ", k, ", SNR ", SNR))
     plot_num <- plot_num + 1
-    print(plot_num)
     
     ## Initialization ##
     set.seed(1234)
     n <- 1e+4  # training set size 
     n_test <- 1e+6  # testing set size 
-    nloop <- 100  # number of replicates
+    nloop <- 10  # number of replicates
     num_method <- 4
     sub_meta <- (1:5) * 100  # subsample size r
     mse_meta <- array(0, dim = c(nloop, num_method, length(sub_meta)))
@@ -56,6 +56,7 @@ for (k in c(30, 40, 50)) {
     
     ## Start Calculation ##
     for (i in 1:nloop) {
+      print(paste0("Replication ", i, "/", nloop))
       set.seed(100 + 123 * i)
       
       ## Generate the covariate(s) and response ##

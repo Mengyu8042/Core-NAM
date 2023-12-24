@@ -28,7 +28,7 @@ library(gridExtra)
 
 ## Import the source file and utility file ##
 setwd(getwd())
-sourceCpp("source/funcs.cpp")
+sourceCpp("../source/funcs.cpp")
 source("utility.R")
 
 ## Beginning ##
@@ -37,66 +37,68 @@ n_list <- round(c(10^3, 10^3.5, 10^4, 10^4.5))  # full sample size n
 sub_list <- c(100, 200, 400, 800)  # subsample size r
 
 for (func_type in 1:6) {
-  print(paste0("function ", func_type))
+  print(paste0("Function ", func_type))
   
   ## Initialization ##
   set.seed(1234)
   if (func_type <= 4) {
+    p <- 1  # number of variables
     k <- 40  # number of knots for univariate variables
-  } else {
+  } else if (func_type == 5) {
+    p <- 2
+    k_ti <- 6  # number of knots for each marginal of 2D interactions
+  } else if (func_type == 6) {
+    p <- 4
     k <- 30
   }
-  k_ti <- 6  # number of knots for each marginal of 2D interactions
-  nloop <- 100  # number of replicates
+  nloop <- 10  # number of replicates
   SNR <- 5  # signal-to-noise ratio
   ineff <- matrix(0, nloop, length(n_list))
   
   ## Start Calculation ##
   for (i in 1:nloop) {
+    print(paste0("Replication ", i, "/", nloop))
+    
     for (j in 1:length(n_list)) {  
       n <- n_list[j]
       sub <- sub_list[j]
       set.seed(100 + 432 * j + 123 * i)
       
       ## Generate the covariate(s) and response ##
-      if (func_type <= 4) {
-        x1 <- runif(n, 0, 1)
-        X <- cbind(x1)
-      } else if (func_type == 5) {
-        x1 <- runif(n, 0, 1); x2 <- runif(n, 0, 1)
-        X <- cbind(x1, x2)
-      } else if (func_type == 6) {
-        x1 <- runif(n, 0, 1); x2 <- runif(n, 0, 1); x3 <- runif(n, 0, 1); x4 <- runif(n, 0, 1)
-        X <- cbind(x1, x2, x3, x4)
-      }
+      X <- matrix(runif(p * n), ncol = p)
       y_raw <- yGenerate(X, func_type)  # response without noise
       y <- y_raw + rnorm(n, 0, sd(y_raw)/sqrt(SNR))  # response with noise
       
       ## Calculate design matrix and penalty matrix ##
+      generate_kernels <- function(x, k, n) {
+        kg <- kernel_generate(x, k, id = 1:n, type_bs = "cr")
+        list(X = kg$X, D = kg$D)
+      }
+      XX <- NULL
+      D_list <- list()
       if (func_type <= 4) {
-        kg1 <- kernel_generate(x1, k, id = 1:n, type_bs = "cr")
-        XX <- kg1$X 
-        D_list = list(D1 = kg1$D)
+        kernels <- generate_kernels(X[,1], k, n)
+        XX <- kernels$X
+        D_list <- list(D1 = kernels$D)
       } else if (func_type == 5) {
-        kg1 <- kernel_generate_tp(x1, x2, k_ti, id = 1:n, type_bs = "te")
-        XX <- cbind(kg1$X)
-        D_list <- list(D1 = kg1$D)
-      } else if (func_type == 6) {
-        kg1 <- kernel_generate(x1, k, id = 1:n, type_bs = "cr")
-        kg2 <- kernel_generate(x2, k, id = 1:n, type_bs = "cr")
-        kg3 <- kernel_generate(x3, k, id = 1:n, type_bs = "cr")
-        kg4 <- kernel_generate(x4, k, id = 1:n, type_bs = "cr")
-        XX <- cbind(kg1$X, kg2$X, kg3$X, kg4$X)
-        D_list <- list(D1 = kg1$D, D2 = kg2$D, D3 = kg3$D, D4 = kg4$D)
+        kg1 <- kernel_generate_tp(X[,1], X[,2], k_ti, id = 1:n, type_bs = "te")
+        XX <- kg1$X
+        D_list <- list(D1 = kg1$D1, D2 = kg1$D2)
+      } else {
+        for (ii in 1:ncol(X)) {
+          kernels <- generate_kernels(X[,ii], k, n)
+          XX <- cbind(XX, kernels$X)
+          D_list[[paste0("D", ii)]] <- kernels$D
+        }
       } 
       dim <- length(D_list)
-      p <- ncol(XX)
+      d <- ncol(XX)
       
       ## Core-NAM ##
       # select the core-elements
-      XXsub <- matrix(0, n, p)
-      thres <- colnth(abs(XX), rep(sub, p), descending = TRUE, parallel = TRUE)
-      for (kk in 1:p) {
+      XXsub <- matrix(0, n, d)
+      thres <- colnth(abs(XX), rep(sub, d), descending = TRUE, parallel = TRUE)
+      for (kk in 1:d) {
         col <- abs(XX[, kk])
         id <- which(col > thres[kk])
         id <- c(id, which(col == thres[kk])[1:(sub - length(id))])
@@ -133,14 +135,7 @@ for (func_type in 1:6) {
                           sub = log10(n_list))
   
   ## Plot the results ##
-  if (func_type == 1) { func_name <- "F1"
-  } else if (func_type == 2) { func_name <- "F2"
-  } else if (func_type == 3) { func_name <- "F3"
-  } else if (func_type == 4) { func_name <- "F4"
-  } else if (func_type == 5) { func_name <- "F5"
-  } else if (func_type == 6) { func_name <- "F6"
-  }
-  
+  func_name <- paste0("F", func_type)
   width <- (max(ineff_mat$sub) - min(ineff_mat$sub))/20
   
   p3 <- ggplot(ineff_mat, aes(x = sub, y = mean))

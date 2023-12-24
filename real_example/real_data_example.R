@@ -32,14 +32,14 @@ library(ncdf4)
 
 ## Import the source file and utility file ##
 setwd(getwd())
-sourceCpp("source/funcs.cpp")
+sourceCpp("../source/funcs.cpp")
 source("utility.R")
 
 ## Import TCO data ## 
 print("Load data...")
 year_list <- 1978:2019
 for (year in year_list) {
-  file_name <- paste0("data/NIWA-BS_CombinedTCO_V3.4.1_", year, "_Daily_Unpatched.nc")
+  file_name <- paste0("../data/NIWA-BS_CombinedTCO_V3.4.1_", year, "_Daily_Unpatched.nc")
   nc_data <- nc_open(file_name)
   # read the variable values
   lon <- ncvar_get(nc_data, "longitude")
@@ -84,7 +84,7 @@ ozone_kern_gen <- function(year, doy, lat, lon, id, k, k_ti) {
   kg2 <- kernel_generate(doy, k, id, type_bs = "cc")
   kg3 <- kernel_generate_tp(lat, lon, k_ti, id, type_bs = "te")
   XX <- cbind(kg1$X, kg2$X, kg3$X) 
-  D_list <- list(D1 = kg1$D, D2 = kg2$D, D3 = kg3$D)
+  D_list <- list(D1 = kg1$D, D2 = kg2$D, D3 = kg3$D1, D4 = kg3$D2)
   list(XX = XX, D_list = D_list)
 }
 
@@ -95,7 +95,7 @@ n_test <- floor(0.01 * nrow(df0))  # testing set size
 n <- nrow(df0) - n_test  # training set size 
 k <- 20  # number of knots for univariate variables
 k_ti <- 6  # number of knots for each marginal of 2D interactions
-nloop <- 100  # number of replicates
+nloop <- 10  # number of replicates
 num_method <- 4 
 sub_meta <- (1:5) * 200  # subsample size
 mse_meta <- array(0, dim = c(nloop, num_method, length(sub_meta)))
@@ -105,6 +105,7 @@ mae_temp <- matrix(0, num_method, length(sub_meta))
 
 ## Start Calculation ##
 for (i in 1:nloop) {
+  print(paste0("Replication ", i, "/", nloop))
   set.seed(100 + 123 * i)
   
   # training-test sets partition
@@ -116,10 +117,10 @@ for (i in 1:nloop) {
   res <- ozone_kern_gen(df_test$year, df_test$doy, df_test$lat, df_test$lon,
                         1:n_test, k, k_ti)
   XX_t <- res$XX; D_list <- res$D_list
-  dim <- 3
+  dim <- length(D_list)
   
   ## FULL ##
-  print("FULL")
+  print(" FULL")
   fit <- bam(y ~ s(year, k = k, bs = "cr") + s(doy, k = k, bs = "cc") + 
                te(lat, lon, k = k_ti, bs = "ps"), 
              data = df, method = "GCV.Cp")
@@ -130,12 +131,12 @@ for (i in 1:nloop) {
   
   ## Subsampling ##
   for (j in 1:length(sub_meta)) {
-    print(c(i, j))
     set.seed(100 + 432 * j + 123 * i)
     sub <- sub_meta[j]
+    print(paste0(" Subsample size r ", sub))
     
     ## UNIF ##
-    print("UNIF")
+    print("  UNIF")
     id_unif <- sort(sample(n, sub, replace = TRUE))
     ysub <- df$y[id_unif]
     
@@ -163,7 +164,7 @@ for (i in 1:nloop) {
     }
     
     ## LowCon ##
-    print("LowCon")
+    print("  LowCon")
     theta <- 1
     x_standardize <- function(x) {
       x <- (x - min(x))/(max(x) - min(x))
@@ -204,7 +205,7 @@ for (i in 1:nloop) {
     }
     
     ## Core-NAM ##
-    print("CORE")
+    print("  CORE")
     # select the core-elements
     n2 <- min(n, 20 * sub)
     id_reduc <- sort(sample(n, n2, replace = FALSE))
@@ -243,9 +244,9 @@ for (i in 1:nloop) {
     mse_temp[, j] <- c(mse, mse_unif, mse_lowcon, mse_core)
     mae_temp[, j] <- c(mae, mae_unif, mae_lowcon, mae_core)
     
-    print("mse_full, mse_unif, mse_lowcon, mse_core")
+    print("  mse_full, mse_unif, mse_lowcon, mse_core")
     print(mse_temp[, j])
-    print("mae_full, mae_unif, mae_lowcon, mae_core")
+    print("  mae_full, mae_unif, mae_lowcon, mae_core")
     print(mae_temp[, j])
   }
   

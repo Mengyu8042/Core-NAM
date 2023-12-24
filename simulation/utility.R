@@ -9,38 +9,6 @@ grid_points <- function(n, d) {
   return(gp)
 }
 
-######### Standardize data to [0,1] ######### 
-min_max_scale <- function(df) {
-  dim <- ncol(df)
-  for (j in 1:dim) {
-    df[, j] <- (df[, j] - min(df[, j]))/(max(df[, j]) - min(df[, j]))
-  }
-  return(df)
-}
-
-######### Make a copula transformation #########
-library(randtoolbox)
-copula.trans <- function(dendat) {
-  if (is.null(dim(dendat))) {
-    n <- length(dendat)
-    dendat <- matrix(dendat, n, 1)
-  }
-  n <- nrow(dendat)
-  d <- ncol(dendat)
-  copdat <- dendat
-  
-  for (ii in 1:d) {
-    or <- rank(dendat[, ii], ties.method = "random")
-    mones <- rep(0, n)
-    for (i in 1:n) mones[or[i]] <- i  
-    copdat[, ii] <- mones/(n + 1)
-  }
-  if (d == 1) {
-    copdat <- copdat[, 1]
-  }
-  return(copdat)
-}
-
 ######### Generate the response #########
 yGenerate <- function(X, func_type = 1) {
   if (func_type == 1) {  # "blocks"
@@ -83,28 +51,21 @@ yGenerate <- function(X, func_type = 1) {
     y3 <- sin((2 * pi * (1 + 0.1)) / (x3 + 0.1))
     y4 <- 10^5 * x4^11 * (1 - x4)^6 + 10^3 * x4^3 * (1 - x4)^10
     y_raw <- y1 + y2 + y3 + y4
+  } else if (func_type == 7) {  # 12-d (with interaction)
+    f1 <- function(x) x
+    f2 <- function(x) (2*x - 1)^2
+    f3 <- function(x) sin(2*pi*x) / (2 - sin(2*pi*x))
+    f4 <- function(x) 0.1*sin(2*pi*x) + 0.2*cos(2*pi*x) + 0.3*sin(2*pi*x)^2 +
+      0.4*cos(2*pi*x)^3 + 0.5*sin(2*pi*x)^3
+    y_raw <- f1(X[,1]) + f2(X[,2]) + f3(X[,3]) + f4(X[,4]) +
+      1.5*f1(X[,5]) + 1.5*f2(X[,6]) + 1.5*f3(X[,7]) + 1.5*f4(X[,8]) +
+      2*f1(X[,9]) + 2*f2(X[,10]) + 2*f3(X[,11]) + 2*f4(X[,12])
+  } else if (func_type == 8) {
+    y_raw <- 0
+    for (j in 1:18) {
+      y_raw = y_raw + 10^4 * X[, j]^11 * (1 - X[, j])^6
+    }
   }
-  return(y_raw)
-}
-
-yGenerate2 <- function(X, func_type = 1) {
-  if (func_type == 1) {
-    x1 <- X[, 1]
-    y_raw <- sin(3 * pi * x1)
-  } else if (func_type == 2) {
-    x1 <- X[, 1]
-    y_raw <- exp(2 * x1^2)
-  } else if (func_type == 3) {
-    x1 <- X[, 1]
-    y_raw <- 10^6 * x1^11 * (1 - x1)^6 + 10^4 * x1^3 * (1 - x1)^10
-  } else if (func_type == 4) {  # 2-d (with 1 interaction)
-    x1 <- X[, 1]; x2 <- X[, 2]
-    y_raw <- 0.75/(0.3 * 0.4 * pi) * exp(-(x1 - 0.2)^2/0.3^2 - (x2 - 0.3)^2/0.4^2) +
-      0.45/(0.3 * 0.4 * pi) * exp(-(x1 - 0.7)^2/0.3^2 - (x2 - 0.8)^2/0.4^2)
-  } else if (func_type == 5) {  # 2-d (with 1 interaction)
-    x1 <- X[, 1]; x2 <- X[, 2]
-    y_raw <- 1.9 * (1.45 + exp(x1) * sin(13*(x1-0.6)^2)) * exp(-x2) * sin(7 * x2)
-  } 
   return(y_raw)
 }
 
@@ -158,46 +119,40 @@ kernel_generate_tp <- function(x1, x2, k, id, type_bs = "ti") {
   names(dat_pred) <- c("x1", "x2")
   X <- PredictMat(smv, dat_pred)
   
-  list(X = X, D = D1 + D2)
+  list(X = X, D1 = D1, D2 = D2)
 }
 
 ######### Fitting functions #########
 am.init <- function(D_list, sp) {
-  ## create the augmented model matrix...
+  ## create the augmented penalty matrix
   sp <- sqrt(sp)
-  dim <- length(D_list)
-  if (dim == 1) {
-    D1 <- D_list[[1]]
-    nD <- nrow(D1)
-    DD <- cbind(rep(0, nD), as.matrix(bdiag(sp[1] * D1)))
-  } else if (dim == 2) {
-    D1 <- D_list[[1]]; D2 <- D_list[[2]]
-    nD <- nrow(D1) + nrow(D2) 
-    DD <- cbind(rep(0, nD), as.matrix(bdiag(sp[1] * D1, sp[2] * D2)))
-  } else if (dim == 3) {
-    D1 <- D_list[[1]]; D2 <- D_list[[2]]; D3 <- D_list[[3]]
-    nD <- nrow(D1) + nrow(D2) + nrow(D3)
-    DD <- cbind(rep(0, nD), as.matrix(bdiag(sp[1] * D1, sp[2] * D2, sp[3] * D3)))
-  } else if (dim == 4) {
-    D1 <- D_list[[1]]; D2 <- D_list[[2]]; D3 <- D_list[[3]]; D4 <- D_list[[4]]
-    nD <- nrow(D1) + nrow(D2) + nrow(D3) + nrow(D4)
-    DD <- cbind(rep(0, nD), as.matrix(bdiag(sp[1] * D1, sp[2] * D2, sp[3] * D3, sp[4] * D4)))
-  } else if (dim == 5) {
-    D1 <- D_list[[1]]; D2 <- D_list[[2]]; D3 <- D_list[[3]]; D4 <- D_list[[4]]; D5 <- D_list[[5]]
-    nD <- nrow(D1) + nrow(D2) + nrow(D3) + nrow(D4) + nrow(D5)
-    DD <- cbind(rep(0, nD), as.matrix(bdiag(sp[1] * D1, sp[2] * D2, sp[3] * D3,
-                                            sp[4] * D4, sp[5] * D5)))
-  } else if (dim == 6) {
-    D1 <- D_list$D1; D2 <- D_list$D2; D3 <- D_list$D3; D4 <- D_list$D4; D5 <- D_list$D5; D6 <- D_list$D6
-    nD <- nrow(D1) + nrow(D2) + nrow(D3) + nrow(D4) + nrow(D5) + nrow(D6)
-    DD <- cbind(rep(0, nD), as.matrix(bdiag(sp[1] * D1, sp[2] * D2, sp[3] * D3,
-                                            sp[4] * D4, sp[5] * D5, sp[6] * D6)))
+  nD <- sum(sapply(D_list, nrow)) # Total number of rows for all D matrices
+  DD <- matrix(rep(0, nD), nrow = nD)
+  # Create a list of scaled D matrices
+  scaled_D_list <- lapply(seq_along(D_list), function(i) sp[i] * D_list[[i]])
+  # Bind the column of zeros to the block-diagonal matrix
+  DD <- cbind(DD, as.matrix(do.call(bdiag, scaled_D_list)))
+  return(DD)
+}
+
+am.init2 <- function(D_list, sp) {
+  ## create the augmented penalty matrix for models with interactions
+  sp <- sqrt(sp)
+  DD <- 0
+  for (i in 1:length(D_list)) {
+    DD <- DD + sp[i] * D_list[[i]]
   }
+  nD <- nrow(DD) 
+  DD <- cbind(rep(0, nD), DD) 
   return(DD)
 }
 
 am.fit <- function(y, XX, D_list, sp) {
-  DD <- am.init(D_list, sp)
+  if (ncol(XX) == ncol(D_list[[1]])) {
+    DD <- am.init2(D_list, sp)
+  } else {
+    DD <- am.init(D_list, sp)
+  }
   Y <- c(y, rep(0, nrow(DD)))
   Z <- rbind(cbind(rep(1, nrow(XX)), XX), DD)
   
@@ -220,7 +175,11 @@ am.mse <- function(y_raw, XX, b, metric = "MSE") {
 
 am.gcv_score <- function(y, XX, D_list, sp, b) {
   ## compute GCV score...
-  DD <- am.init(D_list, sp)
+  if (ncol(XX) == ncol(D_list[[1]])) {
+    DD <- am.init2(D_list, sp)
+  } else {
+    DD <- am.init(D_list, sp)
+  }
   Z <- rbind(cbind(rep(1, nrow(XX)), XX), DD)
   n <- length(y)
   
@@ -246,7 +205,11 @@ am.gcv <- function(lsp, y, XX, D_list) {
 
 ######### Fitting functions for Core-NAM #########
 am.core.fit <- function(ysub, XXrow, XXsub, D_list, sp) {
-  DD <- am.init(D_list, sp)
+  if (ncol(XXrow) == ncol(D_list[[1]])) {
+    DD <- am.init2(D_list, sp)
+  } else {
+    DD <- am.init(D_list, sp)
+  }
   Y <- c(ysub, rep(0, nrow(DD)))
   Z <- rbind(cbind(rep(1, nrow(XXrow)), XXrow), DD)
   Zsub <- rbind(cbind(rep(1, nrow(XXsub)), XXsub), DD)
@@ -260,7 +223,11 @@ am.core.fit <- function(ysub, XXrow, XXsub, D_list, sp) {
 am.core.gcv_score <- function(ysub, XXrow, XXsub, D_list, sp, b) {
   ## compute GCV score...
   n <- length(ysub)
-  DD <- am.init(D_list, sp)
+  if (ncol(XXrow) == ncol(D_list[[1]])) {
+    DD <- am.init2(D_list, sp)
+  } else {
+    DD <- am.init(D_list, sp)
+  }
   Z <- rbind(cbind(rep(1, nrow(XXrow)), XXrow), DD)
   Zsub <- rbind(cbind(rep(1, nrow(XXsub)), XXsub), DD)
   Zsub1t <- Matrix(t(Zsub), sparse = TRUE)
@@ -284,7 +251,11 @@ am.core.gcv <- function(lsp, ysub, XXrow, XXsub, D_list) {
 
 am.core.mse <- function(y_raw_sub, ysub, XXrow, XXsub, D_list, sp) {
   ## return the value of loss function
-  DD <- am.init(D_list, sp)
+  if (ncol(XXrow) == ncol(D_list[[1]])) {
+    DD <- am.init2(D_list, sp)
+  } else {
+    DD <- am.init(D_list, sp)
+  }
   Y <- c(ysub, rep(0, nrow(DD)))
   Z <- rbind(cbind(rep(1, nrow(XXrow)), XXrow), DD)
   Zsub <- rbind(cbind(rep(1, nrow(XXsub)), XXsub), DD)
